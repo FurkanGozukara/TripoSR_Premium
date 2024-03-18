@@ -12,6 +12,7 @@ from einops import rearrange
 from huggingface_hub import hf_hub_download
 from omegaconf import OmegaConf
 from PIL import Image
+from scipy.spatial.transform import Rotation
 
 from .models.isosurface import MarchingCubeHelper
 from .utils import (
@@ -21,6 +22,8 @@ from .utils import (
     get_spherical_cameras,
     scale_tensor,
 )
+
+from .mesh_utils import decimate_mesh, clean_mesh, laplacian_smooth
 
 
 class TSR(BaseModule):
@@ -168,7 +171,7 @@ class TSR(BaseModule):
             return
         self.isosurface_helper = MarchingCubeHelper(resolution)
 
-    def extract_mesh(self, scene_codes, resolution: int = 312, threshold: float = 5.0):
+    def extract_mesh(self, scene_codes, resolution: int = 256, threshold: float = 15.0):
         self.set_marching_cubes_resolution(resolution)
         meshes = []
         for scene_code in scene_codes:
@@ -188,16 +191,37 @@ class TSR(BaseModule):
                 self.isosurface_helper.points_range,
                 (-self.renderer.cfg.radius, self.renderer.cfg.radius),
             )
+
+            verts, faces = v_pos.cpu().numpy(), t_pos_idx.cpu().numpy()
+
+            verts, faces = clean_mesh(verts, faces, remesh=True, remesh_size=0.01)
+            verts, faces = decimate_mesh(verts, faces, target=2e4)
+            smooth_verts = laplacian_smooth(verts, faces, num_iterations=3, lambda_factor=0.5)
+
+            # Query the renderer to get vertex colors for the smoothed mesh
             with torch.no_grad():
-                color = self.renderer.query_triplane(
+                smooth_verts_tensor = torch.from_numpy(smooth_verts).float().to(scene_codes.device)
+                smooth_colors = self.renderer.query_triplane(
                     self.decoder,
-                    v_pos,
+                    smooth_verts_tensor,
                     scene_code,
                 )["color"]
+                smooth_vcolors = smooth_colors.cpu().numpy()
+
+            # Rotate the mesh to try and align with reference image
+            rot_x = Rotation.from_euler('x', 90, degrees=True).as_matrix()
+            rot_y = Rotation.from_euler('y', 300, degrees=True).as_matrix()
+            rot_z = Rotation.from_euler('z', 180, degrees=True).as_matrix()
+
+            # Apply rotations to vertices
+            rotated_verts = smooth_verts @ rot_x.T @ rot_y.T @ rot_z.T
+
             mesh = trimesh.Trimesh(
-                vertices=v_pos.cpu().numpy(),
-                faces=t_pos_idx.cpu().numpy(),
-                vertex_colors=color.cpu().numpy(),
+                vertices=rotated_verts,
+                faces=faces,
+                vertex_colors=smooth_vcolors,
             )
+
             meshes.append(mesh)
         return meshes
+
