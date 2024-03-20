@@ -210,7 +210,7 @@ class TSR(BaseModule):
 
             # Rotate the mesh to try and align with reference image
             rot_x = Rotation.from_euler('x', 90, degrees=True).as_matrix()
-            rot_y = Rotation.from_euler('y', 300, degrees=True).as_matrix()
+            rot_y = Rotation.from_euler('y', 295, degrees=True).as_matrix()
             rot_z = Rotation.from_euler('z', 180, degrees=True).as_matrix()
 
             # Apply rotations to vertices
@@ -222,6 +222,22 @@ class TSR(BaseModule):
                 vertex_colors=smooth_vcolors,
             )
 
-            meshes.append(mesh)
+            # Calculate vertex normals for smooth shading
+            vertex_normals = mesh.vertex_normals
+
+            # Create a new mesh with vertex normals
+            smooth_mesh = trimesh.Trimesh(
+                vertices=rotated_verts,
+                faces=faces,
+                vertex_colors=smooth_vcolors,
+            )
+
+            # Fill holes just in case
+            trimesh.repair.fill_holes(smooth_mesh)
+
+            # Apply vertex normals to the mesh for smooth shading
+            smooth_mesh.vertex_normals = vertex_normals
+
+            meshes.append(smooth_mesh)
         return meshes
 
