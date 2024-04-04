@@ -210,7 +210,7 @@ class TSR(BaseModule):
 
             # Rotate the mesh to try and align with reference image
             rot_x = Rotation.from_euler('x', 90, degrees=True).as_matrix()
-            rot_y = Rotation.from_euler('y', 295, degrees=True).as_matrix()
+            rot_y = Rotation.from_euler('y', 255, degrees=True).as_matrix()
             rot_z = Rotation.from_euler('z', 180, degrees=True).as_matrix()
 
             # Apply rotations to vertices
