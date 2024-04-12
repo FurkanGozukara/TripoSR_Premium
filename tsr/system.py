@@ -3,6 +3,7 @@ from math import radians
 import PIL.Image
 import numpy as np
 import os
+import pymeshlab
 import torch
 import trimesh
 from PIL import Image
@@ -193,8 +194,8 @@ class TSR(BaseModule):
             verts, faces = v_pos.cpu().numpy(), t_pos_idx.cpu().numpy()
 
             verts, faces = clean_mesh(verts, faces, remesh=True, remesh_size=0.01)
-            verts, faces = decimate_mesh(verts, faces, target=3e4)
-            smooth_verts = laplacian_smooth(verts, faces, num_iterations=3, lambda_factor=0.75)
+            verts, faces = decimate_mesh(verts, faces, target=1e4)
+            smooth_verts = laplacian_smooth(verts, faces, num_iterations=3, lambda_factor=0.5)
 
             # Query the renderer to get vertex colors for the smoothed mesh
             with torch.no_grad():
@@ -230,6 +231,17 @@ class TSR(BaseModule):
 
             # Apply the rotation to the mesh
             textured_mesh.apply_transform(rotation_matrix)
+
+            # This process allows us to do shade smoothing
+            vertex_normals = textured_mesh.vertex_normals
+
+            # Create a new mesh with the vertex normals
+            textured_mesh = trimesh.Trimesh(
+                vertices=textured_mesh.vertices,
+                faces=textured_mesh.faces,
+                vertex_normals=vertex_normals,
+                visual=textured_mesh.visual
+            )
 
             meshes.append(textured_mesh)
         return meshes

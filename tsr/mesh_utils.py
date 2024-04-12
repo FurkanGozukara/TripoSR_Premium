@@ -29,7 +29,7 @@ elif PML_VER.startswith('2022.2'):
 def clean_mesh(
         verts, faces,
         v_pct=1, min_f=64, min_d=20, repair=True,
-        remesh=True, remesh_size=0.01, remesh_iters=3
+        remesh=True, remesh_size=0.01, remesh_iters=3, quads=False
 ):
     _ori_vert_shape = verts.shape
     _ori_face_shape = faces.shape
@@ -58,15 +58,21 @@ def clean_mesh(
         ms.meshing_remove_connected_component_by_face_number(mincomponentsize=min_f)
 
     if repair:
-        # ms.meshing_remove_t_vertices(method=0, threshold=40, repeat=True)
+        ms.meshing_remove_t_vertices(method=0, threshold=40, repeat=True)
         ms.meshing_repair_non_manifold_edges(method=0)
         ms.meshing_repair_non_manifold_vertices(vertdispratio=0)
+        ms.meshing_close_holes()
 
     if remesh:
         # ms.apply_coord_taubin_smoothing()
         ms.meshing_isotropic_explicit_remeshing(
-            iterations=remesh_iters, targetlen=pml.PureValue(remesh_size)
+            iterations=remesh_iters, targetlen=pml.PureValue(remesh_size), smoothflag=True
         )
+
+    if quads:
+        ms.meshing_tri_to_quad_dominant(level=1)
+
+    ms.apply_coord_laplacian_smoothing(stepsmoothnum=3, boundary=True)
 
     # extract mesh
     m = ms.current_mesh()
@@ -102,7 +108,7 @@ def decimate_mesh(
         # filters
         # ms.meshing_decimation_clustering(threshold=pml.PercentageValue(1))
         ms.meshing_decimation_quadric_edge_collapse(
-            targetfacenum=int(target), optimalplacement=optimalplacement
+            targetfacenum=int(target), optimalplacement=optimalplacement, preserveboundary=True, autoclean=True
         )
 
         if remesh:

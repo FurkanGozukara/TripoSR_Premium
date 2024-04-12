@@ -9,3 +9,4 @@ huggingface-hub
 imageio[ffmpeg]
 gradio
 moderngl==5.10.0
+pymeshlab==2023.12.post1
