@@ -8,3 +8,4 @@ rembg
 huggingface-hub
 imageio[ffmpeg]
 gradio
+moderngl==5.10.0

@@ -1,19 +1,19 @@
-import math
-import os
-from dataclasses import dataclass, field
-from typing import List, Union
+from math import radians
 
-import numpy as np
 import PIL.Image
+import numpy as np
+import os
 import torch
-import torch.nn.functional as F
 import trimesh
+from PIL import Image
+from dataclasses import dataclass
 from einops import rearrange
 from huggingface_hub import hf_hub_download
 from omegaconf import OmegaConf
-from PIL import Image
-from scipy.spatial.transform import Rotation
+from typing import List, Union
 
+from tsr.renderer import Renderer
+from .mesh_utils import decimate_mesh, clean_mesh, laplacian_smooth
 from .models.isosurface import MarchingCubeHelper
 from .utils import (
     BaseModule,
@@ -22,8 +22,6 @@ from .utils import (
     get_spherical_cameras,
     scale_tensor,
 )
-
-from .mesh_utils import decimate_mesh, clean_mesh, laplacian_smooth
 
 
 class TSR(BaseModule):
@@ -53,7 +51,7 @@ class TSR(BaseModule):
 
     @classmethod
     def from_pretrained(
-        cls, pretrained_model_name_or_path: str, config_name: str, weight_name: str
+            cls, pretrained_model_name_or_path: str, config_name: str, weight_name: str
     ):
         if os.path.isdir(pretrained_model_name_or_path):
             config_path = os.path.join(pretrained_model_name_or_path, config_name)
@@ -88,16 +86,16 @@ class TSR(BaseModule):
         self.isosurface_helper = None
 
     def forward(
-        self,
-        image: Union[
-            PIL.Image.Image,
-            np.ndarray,
-            torch.FloatTensor,
-            List[PIL.Image.Image],
-            List[np.ndarray],
-            List[torch.FloatTensor],
-        ],
-        device: str,
+            self,
+            image: Union[
+                PIL.Image.Image,
+                np.ndarray,
+                torch.FloatTensor,
+                List[PIL.Image.Image],
+                List[np.ndarray],
+                List[torch.FloatTensor],
+            ],
+            device: str,
     ) -> torch.FloatTensor:
         rgb_cond = self.image_processor(image, self.cfg.cond_image_size)[:, None].to(
             device
@@ -123,15 +121,15 @@ class TSR(BaseModule):
         return scene_codes
 
     def render(
-        self,
-        scene_codes,
-        n_views: int,
-        elevation_deg: float = 0.0,
-        camera_distance: float = 1.9,
-        fovy_deg: float = 40.0,
-        height: int = 256,
-        width: int = 256,
-        return_type: str = "pil",
+            self,
+            scene_codes,
+            n_views: int,
+            elevation_deg: float = 0.0,
+            camera_distance: float = 1.9,
+            fovy_deg: float = 40.0,
+            height: int = 256,
+            width: int = 256,
+            return_type: str = "pil",
     ):
         rays_o, rays_d = get_spherical_cameras(
             n_views, elevation_deg, camera_distance, fovy_deg, height, width
@@ -165,8 +163,8 @@ class TSR(BaseModule):
 
     def set_marching_cubes_resolution(self, resolution: int):
         if (
-            self.isosurface_helper is not None
-            and self.isosurface_helper.resolution == resolution
+                self.isosurface_helper is not None
+                and self.isosurface_helper.resolution == resolution
         ):
             return
         self.isosurface_helper = MarchingCubeHelper(resolution)
@@ -195,8 +193,8 @@ class TSR(BaseModule):
             verts, faces = v_pos.cpu().numpy(), t_pos_idx.cpu().numpy()
 
             verts, faces = clean_mesh(verts, faces, remesh=True, remesh_size=0.01)
-            verts, faces = decimate_mesh(verts, faces, target=2e4)
-            smooth_verts = laplacian_smooth(verts, faces, num_iterations=3, lambda_factor=0.5)
+            verts, faces = decimate_mesh(verts, faces, target=3e4)
+            smooth_verts = laplacian_smooth(verts, faces, num_iterations=3, lambda_factor=0.75)
 
             # Query the renderer to get vertex colors for the smoothed mesh
             with torch.no_grad():
@@ -208,36 +206,30 @@ class TSR(BaseModule):
                 )["color"]
                 smooth_vcolors = smooth_colors.cpu().numpy()
 
-            # Rotate the mesh to try and align with reference image
-            rot_x = Rotation.from_euler('x', 90, degrees=True).as_matrix()
-            rot_y = Rotation.from_euler('y', 255, degrees=True).as_matrix()
-            rot_z = Rotation.from_euler('z', 180, degrees=True).as_matrix()
+            tmp_mesh = trimesh.Trimesh(vertices=smooth_verts, faces=faces, vertex_colors=smooth_vcolors)
 
-            # Apply rotations to vertices
-            rotated_verts = smooth_verts @ rot_x.T @ rot_y.T @ rot_z.T
+            renderer = Renderer(self, scene_codes, tmp_mesh)
+            textured_mesh = renderer.render()
 
-            mesh = trimesh.Trimesh(
-                vertices=rotated_verts,
-                faces=faces,
-                vertex_colors=smooth_vcolors,
-            )
+            rotation_x = 90
+            rotation_y = 255
+            rotation_z = 180
 
-            # Calculate vertex normals for smooth shading
-            vertex_normals = mesh.vertex_normals
+            # Convert the angles from degrees to radians
+            rotation_x = radians(rotation_x)
+            rotation_y = radians(rotation_y)
+            rotation_z = radians(rotation_z)
 
-            # Create a new mesh with vertex normals
-            smooth_mesh = trimesh.Trimesh(
-                vertices=rotated_verts,
-                faces=faces,
-                vertex_colors=smooth_vcolors,
-            )
+            # Create the rotation matrices for each axis
+            rotation_matrix_x = trimesh.transformations.rotation_matrix(rotation_x, [1, 0, 0])
+            rotation_matrix_y = trimesh.transformations.rotation_matrix(rotation_y, [0, 1, 0])
+            rotation_matrix_z = trimesh.transformations.rotation_matrix(rotation_z, [0, 0, 1])
 
-            # Fill holes just in case
-            trimesh.repair.fill_holes(smooth_mesh)
+            # Combine the rotation matrices by multiplying them together
+            rotation_matrix = np.dot(rotation_matrix_z, np.dot(rotation_matrix_y, rotation_matrix_x))
 
-            # Apply vertex normals to the mesh for smooth shading
-            smooth_mesh.vertex_normals = vertex_normals
+            # Apply the rotation to the mesh
+            textured_mesh.apply_transform(rotation_matrix)
 
-            meshes.append(smooth_mesh)
+            meshes.append(textured_mesh)
         return meshes
-
