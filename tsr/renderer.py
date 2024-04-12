@@ -35,13 +35,24 @@ class Renderer(object):
             ).astype(np.uint8)
         ).transpose(Image.FLIP_TOP_BOTTOM)
 
+        # Create a PBRMaterial object with the baked texture image
+        material = trimesh.visual.material.PBRMaterial(
+            baseColorTexture=baked_img,
+            metallicFactor=0.0,
+            roughnessFactor=1.0,
+        )
+
+        # Create a TextureVisuals object with the material
+        texture_visuals = trimesh.visual.TextureVisuals(
+            uv=xatlas_result["uvs"],
+            material=material
+        )
+
+        # Create the textured mesh with the updated visuals
         textured_mesh = trimesh.Trimesh(
             vertices=self.mesh.vertices[xatlas_result["vmapping"]],
             faces=xatlas_result["indices"],
-            visual=trimesh.visual.TextureVisuals(
-                uv=xatlas_result["uvs"],
-                image=baked_img
-            )
+            visual=texture_visuals
         )
 
         return textured_mesh
