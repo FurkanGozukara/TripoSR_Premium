@@ -1,5 +1,6 @@
 import moderngl
 import numpy as np
+import os
 import torch
 import trimesh
 import xatlas
@@ -61,7 +62,10 @@ class Renderer(object):
         }
 
     def _run_rasterize(self, xatlas_result):
-        ctx = moderngl.create_context(standalone=True)
+        if os.name == 'nt':
+            ctx = moderngl.create_context(standalone=True)
+        else:
+            ctx = moderngl.create_context(standalone=True, backend='cuda')
         basic_prog = ctx.program(
             vertex_shader="""
                 #version 330
