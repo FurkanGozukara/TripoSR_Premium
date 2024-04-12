@@ -65,7 +65,7 @@ class Renderer(object):
         if os.name == 'nt':
             ctx = moderngl.create_context(standalone=True)
         else:
-            ctx = moderngl.create_context(standalone=True, backend='cuda')
+            ctx = moderngl.create_context(standalone=True, backend='egl')
         basic_prog = ctx.program(
             vertex_shader="""
                 #version 330
