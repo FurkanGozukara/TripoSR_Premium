@@ -3,7 +3,6 @@ from math import radians
 import PIL.Image
 import numpy as np
 import os
-import pymeshlab
 import torch
 import trimesh
 from PIL import Image

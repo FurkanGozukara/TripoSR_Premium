@@ -9,7 +9,7 @@ from PIL import Image
 
 class Renderer(object):
 
-    def __init__(self, tsr, scene_codes, mesh, texture_resolution=1024, texture_padding=1):
+    def __init__(self, tsr, scene_codes, mesh, texture_resolution=1024, texture_padding=10):
         self.tsr = tsr
         self.scene_codes = scene_codes
         self.mesh = mesh
@@ -63,7 +63,9 @@ class Renderer(object):
         options = xatlas.PackOptions()
         options.resolution = self.texture_resolution
         options.padding = self.texture_padding
-        options.bilinear = True
+        options.blockAlign = True
+        options.bilinear = False
+        options.bruteForce = True
         atlas.generate(pack_options=options)
         vmapping, indices, uvs = atlas[0]
         return {
@@ -166,6 +168,16 @@ class Renderer(object):
         ]
         basic_vao = ctx.vertex_array(basic_prog, vao_content, ibo)
         gs_vao = ctx.vertex_array(gs_prog, vao_content, ibo)
+
+        texture = ctx.texture(
+            (self.texture_resolution, self.texture_resolution), 4, dtype='f4')
+        texture.use(location=0)
+        texture.build_mipmaps()
+        texture.anisotropic = 16.0
+
+        texture.min_filter = 'linear_mipmap_linear'
+        texture.mag_filter = 'linear'
+
         fbo = ctx.framebuffer(
             color_attachments=[
                 ctx.texture(
