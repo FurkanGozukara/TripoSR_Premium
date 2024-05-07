@@ -169,7 +169,7 @@ class TSR(BaseModule):
             return
         self.isosurface_helper = MarchingCubeHelper(resolution)
 
-    def extract_mesh(self, scene_codes, resolution: int = 256, threshold: float = 15.0):
+    def extract_mesh(self, scene_codes, has_vertex_color=True, resolution: int = 256, threshold: float = 25.0):
         self.set_marching_cubes_resolution(resolution)
         meshes = []
         for scene_code in scene_codes:

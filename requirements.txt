@@ -8,5 +8,6 @@ rembg
 huggingface-hub
 imageio[ffmpeg]
 gradio
+xatlas==0.0.9
 moderngl==5.10.0
 pymeshlab==2023.12.post1
