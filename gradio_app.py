@@ -122,7 +122,7 @@ with gr.Blocks(title="TripoSR") as interface:
             with gr.Row():
                 with gr.Group():
                     do_remove_background = gr.Checkbox(
-                        label="Remove Background", value=True
+                        label="Remove Background", value=False
                     )
                     foreground_ratio = gr.Slider(
                         label="Foreground Ratio",
@@ -130,55 +130,63 @@ with gr.Blocks(title="TripoSR") as interface:
                         maximum=1.0,
                         value=0.85,
                         step=0.05,
+                        info="Controls padding around the extracted foreground when removing background. Higher values (0.9-1.0) use less padding, making the object occupy more of the image. Lower values (0.5-0.7) add more padding. VRAM: No impact"
                     )
                     mc_resolution = gr.Slider(
                         label="Marching Cubes Resolution",
                         minimum=32,
                         maximum=512,
                         value=320,
-                        step=32
+                        step=32,
+                        info="3D grid resolution for mesh extraction using Marching Cubes algorithm. Higher = finer detail but exponentially more VRAM (32³ vs 512³ voxels). Each step doubles resolution and quadruples VRAM. Recommended: 128-256 for low VRAM (4-8GB), 320-512 for high VRAM (12GB+)"
                     )
                     chunk_size = gr.Slider(
                         label="Chunk Size (VRAM vs Speed)",
                         minimum=2048,
                         maximum=16384,
                         value=8192,
-                        step=2048
+                        step=2048,
+                        info="Batch size for processing 3D points during neural rendering. Higher = faster but uses more VRAM. Lower = slower but saves VRAM. Low VRAM (4-6GB): 2048-4096. Mid VRAM (8-12GB): 8192. High VRAM (16GB+): 16384"
                     )
                     density_threshold = gr.Slider(
                         label="Density Threshold",
                         minimum=10,
                         maximum=50,
                         value=25,
-                        step=1
+                        step=1,
+                        info="Threshold for determining mesh surface from neural density values. Lower values (10-20) capture more fine details and artifacts. Higher values (30-50) produce smoother, cleaner meshes. VRAM: No impact"
                     )
                     decimation_target = gr.Slider(
                         label="Decimation Target (faces)",
                         minimum=1000,
                         maximum=50000,
                         value=10000,
-                        step=1000
+                        step=1000,
+                        info="Target number of triangular faces after mesh simplification. Higher = more detail but larger file size. Lower = smaller files but less detail. VRAM: No impact on processing, but affects output file size"
                     )
                     smooth_iterations = gr.Slider(
                         label="Smoothing Iterations",
                         minimum=0,
                         maximum=10,
                         value=3,
-                        step=1
+                        step=1,
+                        info="Number of Laplacian smoothing passes applied to the mesh. Each iteration moves vertices toward their neighbors. Higher values = smoother mesh but can lose detail. 0 = no smoothing. Recommended: 3-5. VRAM: Minimal impact"
                     )
                     smooth_lambda = gr.Slider(
                         label="Smoothing Lambda",
                         minimum=0.1,
                         maximum=1.0,
                         value=0.5,
-                        step=0.1
+                        step=0.1,
+                        info="Strength of smoothing: how much each vertex moves toward neighbors during Laplacian smoothing. Higher (0.7-1.0) = more aggressive smoothing. Lower (0.1-0.3) = subtle smoothing. Works with smooth_iterations. VRAM: No impact"
                     )
                     remesh_size = gr.Slider(
                         label="Remesh Size",
                         minimum=0.005,
                         maximum=0.05,
                         value=0.01,
-                        step=0.005
+                        step=0.005,
+                        info="Target edge length for isotropic remeshing (mesh topology refinement). Smaller values (0.005-0.01) create finer, more uniform triangles. Larger values (0.02-0.05) create coarser topology. Affects mesh quality before smoothing. VRAM: No impact"
                     )
             with gr.Row():
                 submit = gr.Button("Generate", elem_id="generate", variant="primary")
@@ -220,19 +228,59 @@ with gr.Blocks(title="TripoSR") as interface:
     with gr.Row(variant="panel"):
         gr.Examples(
             examples=[
-                "examples/hamburger.png",
-                "examples/poly_fox.png",
-                "examples/robot.png",
-                "examples/teapot.png",
-                "examples/tiger_girl.png",
-                "examples/horse.png",
-                "examples/flamingo.png",
-                "examples/unicorn.png",
-                "examples/chair.png",
-                "examples/iso_house.png",
-                "examples/marble.png",
-                "examples/police_woman.png",
-                "examples/captured.jpeg",
+                "examples/0.png",
+                "examples/1.png",
+                "examples/3.png",
+                "examples/15.png",
+                "examples/30.png",
+                "examples/46.png",
+                "examples/54.png",
+                "examples/70.png",
+                "examples/74.png",
+                "examples/83.png",
+                "examples/161.png",
+                "examples/166.png",
+                "examples/T.png",
+                "examples/typical_building_building.png",
+                "examples/typical_building_castle.png",
+                "examples/typical_building_colorful_cottage.png",
+                "examples/typical_building_maya_pyramid.png",
+                "examples/typical_building_mushroom.png",
+                "examples/typical_building_space_station.png",
+                "examples/typical_creature_dragon.png",
+                "examples/typical_creature_elephant.png",
+                "examples/typical_creature_furry.png",
+                "examples/typical_creature_quadruped.png",
+                "examples/typical_creature_robot_crab.png",
+                "examples/typical_creature_robot_dinosour.png",
+                "examples/typical_creature_rock_monster.png",
+                "examples/typical_humanoid_block_robot.png",
+                "examples/typical_humanoid_dragonborn.png",
+                "examples/typical_humanoid_dwarf.png",
+                "examples/typical_humanoid_goblin.png",
+                "examples/typical_humanoid_mech.png",
+                "examples/typical_misc_crate.png",
+                "examples/typical_misc_fireplace.png",
+                "examples/typical_misc_gate.png",
+                "examples/typical_misc_lantern.png",
+                "examples/typical_misc_magicbook.png",
+                "examples/typical_misc_mailbox.png",
+                "examples/typical_misc_monster_chest.png",
+                "examples/typical_misc_paper_machine.png",
+                "examples/typical_misc_phonograph.png",
+                "examples/typical_misc_portal2.png",
+                "examples/typical_misc_storage_chest.png",
+                "examples/typical_misc_telephone.png",
+                "examples/typical_misc_television.png",
+                "examples/typical_misc_workbench.png",
+                "examples/typical_vehicle_biplane.png",
+                "examples/typical_vehicle_bulldozer.png",
+                "examples/typical_vehicle_cart.png",
+                "examples/typical_vehicle_excavator.png",
+                "examples/typical_vehicle_helicopter.png",
+                "examples/typical_vehicle_locomotive.png",
+                "examples/typical_vehicle_pirate_ship.png",
+                "examples/weatherworn_misc_paper_machine3.png",
             ],
             inputs=[input_image],
             outputs=[processed_image, output_model_obj_download, output_model_obj_view, output_model_glb],
