@@ -21,8 +21,10 @@ if torch.cuda.is_available():
 else:
     device = "cpu"
 
+# Load TripoSR model from local directory
+model_path = os.path.join(os.path.dirname(__file__), "models", "stabilityai--TripoSR")
 model = TSR.from_pretrained(
-    "stabilityai/TripoSR",
+    model_path,
     config_name="config.yaml",
     weight_name="model.ckpt",
 )

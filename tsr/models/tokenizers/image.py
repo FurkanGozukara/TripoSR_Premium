@@ -1,9 +1,10 @@
 from dataclasses import dataclass
+import json
+import os
 
 import torch
 import torch.nn as nn
 from einops import rearrange
-from huggingface_hub import hf_hub_download
 from transformers.models.vit.modeling_vit import ViTModel
 
 from ...utils import BaseModule
@@ -18,14 +19,54 @@ class DINOSingleImageTokenizer(BaseModule):
     cfg: Config
 
     def configure(self) -> None:
-        self.model: ViTModel = ViTModel(
-            ViTModel.config_class.from_pretrained(
-                hf_hub_download(
-                    repo_id=self.cfg.pretrained_model_name_or_path,
-                    filename="config.json",
-                )
-            )
+        # Handle special marker for local DINO model
+        if self.cfg.pretrained_model_name_or_path == "__LOCAL_DINO_MODEL__":
+            # Resolve to the local DINO model path relative to this module
+            module_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))  # TripoSR_Premium
+            self.cfg.pretrained_model_name_or_path = os.path.join(module_dir, "models", "facebook--dino-vitb16")
+
+        # Check if it's a local path (contains separator or is a relative/absolute path)
+        is_local_path = (
+            os.sep in self.cfg.pretrained_model_name_or_path or
+            (os.altsep and os.altsep in self.cfg.pretrained_model_name_or_path) or
+            self.cfg.pretrained_model_name_or_path.startswith('.') or
+            self.cfg.pretrained_model_name_or_path.startswith('..') or
+            os.path.isabs(self.cfg.pretrained_model_name_or_path)
         )
+
+        if is_local_path:
+            # Local path - load directly
+            config_path = os.path.join(self.cfg.pretrained_model_name_or_path, "config.json")
+            model_path = os.path.join(self.cfg.pretrained_model_name_or_path, "pytorch_model.bin")
+
+            # Load config from local file
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_dict = json.load(f)
+
+            self.model: ViTModel = ViTModel(
+                ViTModel.config_class(**config_dict)
+            )
+
+            # Load model weights if local path
+            if os.path.exists(model_path):
+                state_dict = torch.load(model_path, map_location="cpu")
+                # Filter out missing keys (like pooler) that might not be present
+                missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+                if missing_keys:
+                    print(f"Warning: Missing keys in DINO state_dict: {missing_keys}")
+                if unexpected_keys:
+                    print(f"Warning: Unexpected keys in DINO state_dict: {unexpected_keys}")
+        else:
+            # HF repo ID - use default
+            from huggingface_hub import hf_hub_download
+            config_path = hf_hub_download(
+                repo_id=self.cfg.pretrained_model_name_or_path,
+                filename="config.json",
+            )
+
+            self.model: ViTModel = ViTModel(
+                ViTModel.config_class.from_pretrained(config_path)
+            )
 
         if self.cfg.enable_gradient_checkpointing:
             self.model.encoder.gradient_checkpointing = True
