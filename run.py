@@ -70,6 +70,36 @@ parser.add_argument(
     help="Marching cubes grid resolution. Default: 256"
 )
 parser.add_argument(
+    "--density-threshold",
+    default=25.0,
+    type=float,
+    help="Density threshold for surface extraction. Lower = more detail, Higher = smoother. Default: 25.0"
+)
+parser.add_argument(
+    "--decimation-target",
+    default=10000,
+    type=int,
+    help="Target number of faces after decimation. Lower = smaller file, Higher = more detail. Default: 10000"
+)
+parser.add_argument(
+    "--smooth-iterations",
+    default=3,
+    type=int,
+    help="Number of smoothing iterations. Default: 3"
+)
+parser.add_argument(
+    "--smooth-lambda",
+    default=0.5,
+    type=float,
+    help="Smoothing lambda factor. Default: 0.5"
+)
+parser.add_argument(
+    "--remesh-size",
+    default=0.01,
+    type=float,
+    help="Remesh size for mesh cleaning. Default: 0.01"
+)
+parser.add_argument(
     "--no-remove-bg",
     action="store_true",
     help="If specified, the background will NOT be automatically removed from the input image, and the input image should be an RGB image with gray background and properly-sized foreground. Default: false",
@@ -170,7 +200,16 @@ for i, image in enumerate(images):
         timer.end("Rendering")
 
     timer.start("Extracting mesh")
-    meshes = model.extract_mesh(scene_codes, not args.bake_texture, resolution=args.mc_resolution)
+    meshes = model.extract_mesh(
+        scene_codes, 
+        not args.bake_texture, 
+        resolution=args.mc_resolution,
+        threshold=args.density_threshold,
+        decimation_target=args.decimation_target,
+        smooth_iterations=args.smooth_iterations,
+        smooth_lambda=args.smooth_lambda,
+        remesh_size=args.remesh_size
+    )
     timer.end("Extracting mesh")
 
     out_mesh_path = os.path.join(output_dir, str(i), f"mesh.{args.model_save_format}")

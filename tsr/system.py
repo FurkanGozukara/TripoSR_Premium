@@ -169,7 +169,9 @@ class TSR(BaseModule):
             return
         self.isosurface_helper = MarchingCubeHelper(resolution)
 
-    def extract_mesh(self, scene_codes, has_vertex_color=True, resolution: int = 256, threshold: float = 25.0):
+    def extract_mesh(self, scene_codes, has_vertex_color=True, resolution: int = 256, threshold: float = 25.0,
+                     remesh_size: float = 0.01, decimation_target: int = 10000, 
+                     smooth_iterations: int = 3, smooth_lambda: float = 0.5):
         self.set_marching_cubes_resolution(resolution)
         meshes = []
         for scene_code in scene_codes:
@@ -192,9 +194,9 @@ class TSR(BaseModule):
 
             verts, faces = v_pos.cpu().numpy(), t_pos_idx.cpu().numpy()
 
-            verts, faces = clean_mesh(verts, faces, remesh=True, remesh_size=0.01)
-            verts, faces = decimate_mesh(verts, faces, target=1e4)
-            smooth_verts = laplacian_smooth(verts, faces, num_iterations=3, lambda_factor=0.5)
+            verts, faces = clean_mesh(verts, faces, remesh=True, remesh_size=remesh_size)
+            verts, faces = decimate_mesh(verts, faces, target=decimation_target)
+            smooth_verts = laplacian_smooth(verts, faces, num_iterations=smooth_iterations, lambda_factor=smooth_lambda)
 
             # Query the renderer to get vertex colors for the smoothed mesh
             with torch.no_grad():
