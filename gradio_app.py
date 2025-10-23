@@ -2,6 +2,9 @@ import logging
 import os
 import tempfile
 import time
+import shutil
+import platform
+import subprocess
 
 import gradio as gr
 import numpy as np
@@ -34,6 +37,45 @@ model.to(device)
 
 rembg_session = rembg.new_session()
 
+# Create outputs directory if it doesn't exist
+outputs_dir = os.path.join(os.path.dirname(__file__), "outputs")
+os.makedirs(outputs_dir, exist_ok=True)
+
+
+def get_next_file_number():
+    """Get the next available file number for incremental naming"""
+    existing_files = [f for f in os.listdir(outputs_dir) if f.endswith(('.png', '.obj', '.glb', '.txt'))]
+    if not existing_files:
+        return 1
+    
+    # Extract numbers from existing files
+    numbers = []
+    for f in existing_files:
+        try:
+            num = int(f.split('.')[0])
+            numbers.append(num)
+        except ValueError:
+            continue
+    
+    if not numbers:
+        return 1
+    
+    return max(numbers) + 1
+
+
+def open_outputs_folder():
+    """Open the outputs folder in the system file manager"""
+    path = os.path.abspath(outputs_dir)
+    
+    if platform.system() == "Windows":
+        os.startfile(path)
+    elif platform.system() == "Darwin":  # macOS
+        subprocess.Popen(["open", path])
+    else:  # Linux
+        subprocess.Popen(["xdg-open", path])
+    
+    return f"Opened outputs folder: {path}"
+
 
 def check_input_image(input_image):
     if input_image is None:
@@ -60,7 +102,8 @@ def preprocess(input_image, do_remove_background, foreground_ratio):
 
 
 def generate(image, mc_resolution, chunk_size, density_threshold, decimation_target, 
-             smooth_iterations, smooth_lambda, remesh_size, formats=["obj", "glb"]):
+             smooth_iterations, smooth_lambda, remesh_size, do_remove_background, 
+             foreground_ratio, input_image=None, formats=["obj", "glb"]):
     # Set chunk size
     model.renderer.set_chunk_size(chunk_size)
     
@@ -76,14 +119,62 @@ def generate(image, mc_resolution, chunk_size, density_threshold, decimation_tar
         remesh_size=remesh_size
     )[0]
     mesh = to_gradio_3d_orientation(mesh)
-    rv = []
-    for format in formats:
-        mesh_path = tempfile.NamedTemporaryFile(suffix=f".{format}", delete=False)
-        mesh.export(mesh_path.name)
-        rv.append(mesh_path.name)
+    
+    # Get next file number and save files
+    file_num = get_next_file_number()
+    file_prefix = f"{file_num:04d}"
+    
+    # Save OBJ and GLB files
+    obj_path = os.path.join(outputs_dir, f"{file_prefix}.obj")
+    glb_path = os.path.join(outputs_dir, f"{file_prefix}.glb")
+    
+    mesh.export(obj_path)
+    mesh.export(glb_path)
+    
+    # Save processed image
+    if image is not None:
+        image_path = os.path.join(outputs_dir, f"{file_prefix}.png")
+        # Convert to PIL Image if it's a numpy array
+        if isinstance(image, np.ndarray):
+            # Handle different numpy array formats
+            if image.dtype != np.uint8:
+                # Normalize to 0-255 range if needed
+                if image.max() <= 1.0:
+                    image = (image * 255).astype(np.uint8)
+                else:
+                    image = image.astype(np.uint8)
+            image_pil = Image.fromarray(image)
+        else:
+            image_pil = image
+        image_pil.save(image_path)
+    
+    # Save metadata
+    metadata_path = os.path.join(outputs_dir, f"{file_prefix}.txt")
+    with open(metadata_path, 'w') as f:
+        f.write("TripoSR Generation Parameters\n")
+        f.write("=" * 50 + "\n\n")
+        f.write(f"File Number: {file_num}\n")
+        f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        f.write("Parameters:\n")
+        f.write(f"  - Marching Cubes Resolution: {mc_resolution}\n")
+        f.write(f"  - Chunk Size: {chunk_size}\n")
+        f.write(f"  - Density Threshold: {density_threshold}\n")
+        f.write(f"  - Decimation Target: {decimation_target}\n")
+        f.write(f"  - Smooth Iterations: {smooth_iterations}\n")
+        f.write(f"  - Smooth Lambda: {smooth_lambda}\n")
+        f.write(f"  - Remesh Size: {remesh_size}\n")
+        f.write(f"  - Remove Background: {do_remove_background}\n")
+        f.write(f"  - Foreground Ratio: {foreground_ratio}\n")
+        f.write(f"  - Device: {device}\n")
+    
+    # Create temp files for download
+    temp_obj = tempfile.NamedTemporaryFile(suffix=".obj", delete=False)
+    temp_glb = tempfile.NamedTemporaryFile(suffix=".glb", delete=False)
+    shutil.copy(obj_path, temp_obj.name)
+    shutil.copy(glb_path, temp_glb.name)
     
     # Return OBJ download, GLB for OBJ tab viewer, GLB for GLB tab
-    return rv[0], rv[1], rv[1]
+    return temp_obj.name, temp_glb.name, temp_glb.name
 
 
 def run_example(image_pil):
@@ -97,6 +188,9 @@ def run_example(image_pil):
         3,  # smooth_iterations
         0.5,  # smooth_lambda
         0.01,  # remesh_size
+        False,  # do_remove_background
+        0.9,  # foreground_ratio
+        None,  # input_image
         ["obj", "glb"]
     )
     return preprocessed, mesh_name_obj_download, mesh_name_obj_view, mesh_name_glb
@@ -119,67 +213,82 @@ with gr.Blocks(title="TripoSR") as interface:
                     elem_id="content_image",
                 )
                 processed_image = gr.Image(label="Processed Image", interactive=False)
+            
+            with gr.Row():
+                submit = gr.Button("Generate", elem_id="generate", variant="primary", scale=1)
+            
             with gr.Row():
                 with gr.Group():
-                    do_remove_background = gr.Checkbox(
-                        label="Remove Background", value=False
-                    )
-                    foreground_ratio = gr.Slider(
-                        label="Foreground Ratio",
-                        minimum=0.5,
-                        maximum=1.0,
-                        value=0.85,
-                        step=0.05,
-                        info="Controls padding around the extracted foreground when removing background. Higher values (0.9-1.0) use less padding, making the object occupy more of the image. Lower values (0.5-0.7) add more padding. VRAM: No impact"
-                    )
-                    mc_resolution = gr.Slider(
-                        label="Marching Cubes Resolution",
-                        minimum=32,
-                        maximum=512,
-                        value=320,
-                        step=32,
-                        info="3D grid resolution for mesh extraction using Marching Cubes algorithm. Higher = finer detail but exponentially more VRAM (32³ vs 512³ voxels). Each step doubles resolution and quadruples VRAM. Recommended: 128-256 for low VRAM (4-8GB), 320-512 for high VRAM (12GB+)"
-                    )
-                    chunk_size = gr.Slider(
-                        label="Chunk Size (VRAM vs Speed)",
-                        minimum=2048,
-                        maximum=16384,
-                        value=8192,
-                        step=2048,
-                        info="Batch size for processing 3D points during neural rendering. Higher = faster but uses more VRAM. Lower = slower but saves VRAM. Low VRAM (4-6GB): 2048-4096. Mid VRAM (8-12GB): 8192. High VRAM (16GB+): 16384"
-                    )
-                    density_threshold = gr.Slider(
-                        label="Density Threshold",
-                        minimum=10,
-                        maximum=50,
-                        value=25,
-                        step=1,
-                        info="Threshold for determining mesh surface from neural density values. Lower values (10-20) capture more fine details and artifacts. Higher values (30-50) produce smoother, cleaner meshes. VRAM: No impact"
-                    )
-                    decimation_target = gr.Slider(
-                        label="Decimation Target (faces)",
-                        minimum=1000,
-                        maximum=50000,
-                        value=10000,
-                        step=1000,
-                        info="Target number of triangular faces after mesh simplification. Higher = more detail but larger file size. Lower = smaller files but less detail. VRAM: No impact on processing, but affects output file size"
-                    )
-                    smooth_iterations = gr.Slider(
-                        label="Smoothing Iterations",
-                        minimum=0,
-                        maximum=10,
-                        value=3,
-                        step=1,
-                        info="Number of Laplacian smoothing passes applied to the mesh. Each iteration moves vertices toward their neighbors. Higher values = smoother mesh but can lose detail. 0 = no smoothing. Recommended: 3-5. VRAM: Minimal impact"
-                    )
-                    smooth_lambda = gr.Slider(
-                        label="Smoothing Lambda",
-                        minimum=0.1,
-                        maximum=1.0,
-                        value=0.5,
-                        step=0.1,
-                        info="Strength of smoothing: how much each vertex moves toward neighbors during Laplacian smoothing. Higher (0.7-1.0) = more aggressive smoothing. Lower (0.1-0.3) = subtle smoothing. Works with smooth_iterations. VRAM: No impact"
-                    )
+                    with gr.Row():
+                        do_remove_background = gr.Checkbox(
+                            label="Remove Background", value=False, scale=1
+                        )
+                        foreground_ratio = gr.Slider(
+                            label="Foreground Ratio",
+                            minimum=0.5,
+                            maximum=1.0,
+                            value=0.85,
+                            step=0.05,
+                            scale=2,
+                            info="Controls padding around the extracted foreground when removing background. Higher values (0.9-1.0) use less padding, making the object occupy more of the image. Lower values (0.5-0.7) add more padding. VRAM: No impact"
+                        )
+                    with gr.Row():
+                        mc_resolution = gr.Slider(
+                            label="Marching Cubes Resolution",
+                            minimum=32,
+                            maximum=512,
+                            value=320,
+                            step=32,
+                            scale=1,
+                            info="3D grid resolution for mesh extraction using Marching Cubes algorithm. Higher = finer detail but exponentially more VRAM (32³ vs 512³ voxels). Each step doubles resolution and quadruples VRAM. Recommended: 128-256 for low VRAM (4-8GB), 320-512 for high VRAM (12GB+)"
+                        )
+                        chunk_size = gr.Slider(
+                            label="Chunk Size (VRAM vs Speed)",
+                            minimum=2048,
+                            maximum=16384,
+                            value=8192,
+                            step=2048,
+                            scale=1,
+                            info="Batch size for processing 3D points during neural rendering. Higher = faster but uses more VRAM. Lower = slower but saves VRAM. Low VRAM (4-6GB): 2048-4096. Mid VRAM (8-12GB): 8192. High VRAM (16GB+): 16384"
+                        )
+                    with gr.Row():
+                        density_threshold = gr.Slider(
+                            label="Density Threshold",
+                            minimum=10,
+                            maximum=50,
+                            value=25,
+                            step=1,
+                            scale=1,
+                            info="Threshold for determining mesh surface from neural density values. Lower values (10-20) capture more fine details and artifacts. Higher values (30-50) produce smoother, cleaner meshes. VRAM: No impact"
+                        )
+                        decimation_target = gr.Slider(
+                            label="Decimation Target (faces)",
+                            minimum=1000,
+                            maximum=50000,
+                            value=10000,
+                            step=1000,
+                            scale=1,
+                            info="Target number of triangular faces after mesh simplification. Higher = more detail but larger file size. Lower = smaller files but less detail. VRAM: No impact on processing, but affects output file size"
+                        )
+                    with gr.Row():
+                        smooth_iterations = gr.Slider(
+                            label="Smoothing Iterations",
+                            minimum=0,
+                            maximum=10,
+                            value=3,
+                            step=1,
+                            scale=1,
+                            info="Number of Laplacian smoothing passes applied to the mesh. Each iteration moves vertices toward their neighbors. Higher values = smoother mesh but can lose detail. 0 = no smoothing. Recommended: 3-5. VRAM: Minimal impact"
+                        )
+                        smooth_lambda = gr.Slider(
+                            label="Smoothing Lambda",
+                            minimum=0.1,
+                            maximum=1.0,
+                            value=0.5,
+                            step=0.1,
+                            scale=1,
+                            info="Strength of smoothing: how much each vertex moves toward neighbors during Laplacian smoothing. Higher (0.7-1.0) = more aggressive smoothing. Lower (0.1-0.3) = subtle smoothing. Works with smooth_iterations. VRAM: No impact"
+                        )
                     remesh_size = gr.Slider(
                         label="Remesh Size",
                         minimum=0.005,
@@ -188,8 +297,6 @@ with gr.Blocks(title="TripoSR") as interface:
                         step=0.005,
                         info="Target edge length for isotropic remeshing (mesh topology refinement). Smaller values (0.005-0.01) create finer, more uniform triangles. Larger values (0.02-0.05) create coarser topology. Affects mesh quality before smoothing. VRAM: No impact"
                     )
-            with gr.Row():
-                submit = gr.Button("Generate", elem_id="generate", variant="primary")
         with gr.Column():
             with gr.Row():
                 with gr.Tab("GLB"):
@@ -208,6 +315,10 @@ with gr.Blocks(title="TripoSR") as interface:
                         interactive=False,
                     )
                     gr.Markdown("Note: Preview shows GLB format. Download button provides OBJ file.")
+            with gr.Row():
+                open_outputs_btn = gr.Button("Open Outputs Folder", variant="secondary")
+                outputs_status = gr.Textbox(label="Status", interactive=False, visible=False)
+                open_outputs_btn.click(fn=open_outputs_folder, outputs=outputs_status)
             with gr.Row():
                 gr.Markdown(
             """
@@ -296,7 +407,7 @@ with gr.Blocks(title="TripoSR") as interface:
     ).success(
         fn=generate,
         inputs=[processed_image, mc_resolution, chunk_size, density_threshold, decimation_target,
-                smooth_iterations, smooth_lambda, remesh_size],
+                smooth_iterations, smooth_lambda, remesh_size, do_remove_background, foreground_ratio, input_image],
         outputs=[output_model_obj_download, output_model_obj_view, output_model_glb],
     )
 
