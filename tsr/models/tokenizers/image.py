@@ -19,8 +19,8 @@ class DINOSingleImageTokenizer(BaseModule):
     cfg: Config
 
     def configure(self) -> None:
-        # Handle special marker for local DINO model
-        if self.cfg.pretrained_model_name_or_path == "__LOCAL_DINO_MODEL__":
+        # Handle special cases for local DINO model
+        if self.cfg.pretrained_model_name_or_path == "__LOCAL_DINO_MODEL__" or self.cfg.pretrained_model_name_or_path == "facebook/dino-vitb16":
             # Resolve to the local DINO model path relative to this module
             module_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))  # TripoSR_Premium
             self.cfg.pretrained_model_name_or_path = os.path.join(module_dir, "models", "facebook--dino-vitb16")
